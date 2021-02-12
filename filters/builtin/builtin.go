@@ -161,6 +161,7 @@ func MakeRegistry() filters.Registry {
 		tracing.NewBaggageToTagFilter(),
 		tracing.NewTag(),
 		tracing.NewStateBagToTag(),
+		tracing.NewTracingHTTPStatusErrorTag(),
 		accesslog.NewAccessLogDisabled(),
 		accesslog.NewDisableAccessLog(),
 		accesslog.NewEnableAccessLog(),

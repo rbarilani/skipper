@@ -962,7 +962,9 @@ func (p *Proxy) makeBackendRequest(ctx *context, requestContext stdlibcontext.Co
 		p.log.Errorf("Unexpected error from Go stdlib net/http package during roundtrip: %v", err)
 		return nil, &proxyError{err: err}
 	}
+
 	p.tracing.setTag(ctx.proxySpan, HTTPStatusCodeTag, uint16(response.StatusCode))
+
 	return response, nil
 }
 
@@ -1175,6 +1177,8 @@ func (p *Proxy) serveResponse(ctx *context) {
 		p.tracing.setTag(ctx.proxySpan, ClientRequestStateTag, ClientRequestCanceled)
 	}
 
+	p.tracing.setTag(ctx.initialSpan, HTTPStatusCodeTag, uint16(ctx.response.StatusCode))
+
 	ctx.responseWriter.WriteHeader(ctx.response.StatusCode)
 	ctx.responseWriter.Flush()
 	n, err := copyStream(ctx.responseWriter, ctx.response.Body)
@@ -1182,6 +1186,7 @@ func (p *Proxy) serveResponse(ctx *context) {
 	if err != nil {
 		p.metrics.IncErrorsStreaming(ctx.route.Id)
 		p.log.Errorf("error while copying the response stream: %v", err)
+		p.tracing.setTag(ctx.initialSpan, ErrorTag, true)
 		p.tracing.setTag(ctx.proxySpan, ErrorTag, true)
 		p.tracing.setTag(ctx.proxySpan, StreamBodyEvent, StreamBodyError)
 		p.tracing.logStreamEvent(ctx.proxySpan, StreamBodyEvent, fmt.Sprintf("Failed to stream response: %v", err))
@@ -1225,6 +1230,7 @@ func (p *Proxy) errorResponse(ctx *context, err error) {
 	if span := ot.SpanFromContext(ctx.Request().Context()); span != nil {
 		p.tracing.setTag(span, ErrorTag, true)
 		p.tracing.setTag(span, HTTPStatusCodeTag, uint16(code))
+
 		if err == errRouteLookupFailed {
 			span.LogKV("event", "error", "message", errRouteLookup.Error())
 		}
@@ -1363,6 +1369,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	} else {
 		span = p.tracing.tracer.StartSpan(p.tracing.initialOperationName, ext.RPCServerOption(wireContext))
 	}
+
 	defer func() {
 		if ctx != nil && ctx.proxySpan != nil {
 			ctx.proxySpan.Finish()
@@ -1411,6 +1418,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	r = r.WithContext(ot.ContextWithSpan(r.Context(), span))
 
 	ctx = newContext(lw, r, p)
+	ctx.initialSpan = span
 	ctx.startServe = time.Now()
 	ctx.tracer = p.tracing.tracer
 
