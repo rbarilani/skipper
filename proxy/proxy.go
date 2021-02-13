@@ -963,6 +963,7 @@ func (p *Proxy) makeBackendRequest(ctx *context, requestContext stdlibcontext.Co
 		return nil, &proxyError{err: err}
 	}
 
+	p.tracing.setTag(ctx.initialSpan, SkipperProxyRoundtripTag, true)
 	p.tracing.setTag(ctx.proxySpan, HTTPStatusCodeTag, uint16(response.StatusCode))
 
 	return response, nil
@@ -1414,7 +1415,10 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p.tracing.setTag(span, SpanKindTag, SpanKindServer)
+	p.tracing.setTag(span, SkipperProxyRoundtripTag, false)
+
 	p.setCommonSpanInfo(r.URL, r, span)
+
 	r = r.WithContext(ot.ContextWithSpan(r.Context(), span))
 
 	ctx = newContext(lw, r, p)
@@ -1432,6 +1436,7 @@ func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}()
 
 	err := p.do(ctx)
+	p.tracing.setTag(span, SkipperRouteIDTag, ctx.route.Id)
 
 	if err != nil {
 		p.errorResponse(ctx, err)
